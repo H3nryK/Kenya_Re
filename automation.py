@@ -10,6 +10,7 @@ import re
 import spacy
 import joblib
 from typing import Dict, Any
+import os
 
 class AdvancedDocumentProcessor:
     def __init__(self):
@@ -46,9 +47,16 @@ class AdvancedDataExtractor:
                 info['client_name'] = ent.text
             elif ent.label_ == "MONEY" and not info['sum_insured']:
                 info['sum_insured'] = float(re.sub(r'[^\d.]', '', ent.text))
-            # Add more entity extraction logic here
+        
+        # Fallback to regex if NER doesn't find the information
+        if not info['client_name']:
+            client_match = re.search(r'Client Name:\s*(.+)', text)
+            info['client_name'] = client_match.group(1) if client_match else "Unknown"
+        
+        if not info['sum_insured']:
+            sum_insured_match = re.search(r'Sum Insured:\s*\$?(\d+(?:,\d+)*(?:\.\d+)?)', text)
+            info['sum_insured'] = float(sum_insured_match.group(1).replace(',', '')) if sum_insured_match else 0
 
-        # Use regex for specific patterns
         info['risk_type'] = re.search(r'Risk Type:\s*(.+)', text)
         info['industry'] = re.search(r'Industry:\s*(.+)', text)
         info['years_in_business'] = re.search(r'Years in Business:\s*(\d+)', text)
@@ -59,27 +67,33 @@ class AdvancedDataExtractor:
             if isinstance(value, re.Match):
                 info[key] = value.group(1) if value else None
 
+        # Set default values if information is missing
+        info['risk_type'] = info['risk_type'] or "Medium"
+        info['industry'] = info['industry'] or "Other"
+        info['years_in_business'] = int(info['years_in_business'] or 0)
+        info['claims_history'] = info['claims_history'] or "None"
+
         return info
 
 class AdvancedRatingEngine:
     def __init__(self):
         self.model = RandomForestClassifier(n_estimators=100, random_state=42)
         self.scaler = StandardScaler()
+        self.is_fitted = False
 
     def preprocess_features(self, features: Dict[str, Any]) -> np.ndarray:
-        # Convert categorical variables to numerical
         risk_type_map = {'Low': 0, 'Medium': 1, 'High': 2}
         industry_map = {'Technology': 0, 'Manufacturing': 1, 'Healthcare': 2, 'Finance': 3, 'Other': 4}
         
         feature_array = np.array([
             features['sum_insured'],
-            risk_type_map.get(features['risk_type'], -1),
+            risk_type_map.get(features['risk_type'], 1),
             industry_map.get(features['industry'], 4),
             features['years_in_business'],
-            len(features['claims_history'].split(',')) if features['claims_history'] else 0
+            len(features['claims_history'].split(',')) if features['claims_history'] != "None" else 0
         ]).reshape(1, -1)
         
-        return self.scaler.transform(feature_array)
+        return feature_array if not self.is_fitted else self.scaler.transform(feature_array)
 
     def train(self, X: np.ndarray, y: np.ndarray):
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -87,18 +101,34 @@ class AdvancedRatingEngine:
         X_train_scaled = self.scaler.transform(X_train)
         X_test_scaled = self.scaler.transform(X_test)
         self.model.fit(X_train_scaled, y_train)
+        self.is_fitted = True
         print(f"Model accuracy: {self.model.score(X_test_scaled, y_test):.2f}")
 
     def predict_rating(self, features: Dict[str, Any]) -> str:
+        if not self.is_fitted:
+            return self.fallback_rating(features)
+        
         preprocessed_features = self.preprocess_features(features)
         prediction = self.model.predict(preprocessed_features)
         return ['Low', 'Medium', 'High'][int(prediction[0])]
 
+    def fallback_rating(self, features: Dict[str, Any]) -> str:
+        sum_insured = features['sum_insured']
+        years_in_business = features['years_in_business']
+        claims_history = features['claims_history']
+
+        if sum_insured > 1000000 or claims_history != "None":
+            return 'High'
+        elif sum_insured > 500000 or years_in_business < 5:
+            return 'Medium'
+        else:
+            return 'Low'
+
     def save_model(self, path: str):
-        joblib.dump((self.model, self.scaler), path)
+        joblib.dump((self.model, self.scaler, self.is_fitted), path)
 
     def load_model(self, path: str):
-        self.model, self.scaler = joblib.load(path)
+        self.model, self.scaler, self.is_fitted = joblib.load(path)
 
 class AdvancedQuotationGenerator:
     def generate_pdf(self, quotation_data: Dict[str, Any], output_path: str):
@@ -145,7 +175,6 @@ class AdvancedUnderwritingSystem:
         self.quotation_generator.generate_pdf(quotation_data, "advanced_quotation.pdf")
 
     def prepare_quotation(self, key_info: Dict[str, Any], rating: str) -> Dict[str, Any]:
-        # More sophisticated premium calculation
         base_rate = 0.01  # 1% base rate
         risk_multiplier = {'Low': 1.0, 'Medium': 1.5, 'High': 2.0}
         industry_factor = {
@@ -173,14 +202,14 @@ class AdvancedUnderwritingSystem:
 # Usage
 system = AdvancedUnderwritingSystem()
 
-# Train the model (in a real scenario, you'd do this separately with a large dataset)
-# X = ... # Your feature matrix
-# y = ... # Your target variable
-# system.rating_engine.train(X, y)
-# system.rating_engine.save_model("rating_model.joblib")
+# Check if a trained model exists and load it
+model_path = "rating_model.joblib"
+if os.path.exists(model_path):
+    system.rating_engine.load_model(model_path)
+    print("Loaded pre-trained model.")
+else:
+    print("No pre-trained model found. Using fallback rating method.")
 
-# For subsequent runs, you can load the trained model
-# system.rating_engine.load_model("rating_model.joblib")
-
+# Process the application
 system.process_application("Fekan Howell - Proposal Form signed and dated 11072024.pdf")
 print("Advanced quotation generated successfully.")
