@@ -5,7 +5,7 @@ from PIL import Image, ImageEnhance, ImageFilter
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
 # Path to the Tesseract executable
-pytesseract.pytesseract.tesseract_cmd = r'C:\Users\T5M\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # Load pre-trained TROCR model and processor for handwritten text
 processor = TrOCRProcessor.from_pretrained('microsoft/trocr-base-handwritten')
@@ -132,7 +132,7 @@ def process_form_pdf(pdf_path):
 # ===========================
 # Step 5: Testing the Full Pipeline
 # ===========================
-pdf_path = r'C:\Users\T5M\Desktop\PRECIOUS OCR\Fekan Howell - Proposal Form signed and dated 11072024-output.pdf'
+pdf_path = 'proposal.pdf'
 
 # Process the document
 combined_data = process_form_pdf(pdf_path)
