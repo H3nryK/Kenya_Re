@@ -6,6 +6,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import Paragraph, Spacer
+from reportlab.lib.units import inch
 import re
 import spacy
 import joblib
@@ -130,21 +135,71 @@ class AdvancedRatingEngine:
     def load_model(self, path: str):
         self.model, self.scaler, self.is_fitted = joblib.load(path)
 
-class AdvancedQuotationGenerator:
+class EnhancedQuotationGenerator:
     def generate_pdf(self, quotation_data: Dict[str, Any], output_path: str):
         c = canvas.Canvas(output_path, pagesize=letter)
-        c.setFont("Helvetica-Bold", 16)
-        c.drawString(100, 750, "Reinsurance Quotation")
+        width, height = letter
+        styles = getSampleStyleSheet()
+
+        # Header
+        c.setFont("Helvetica-Bold", 24)
+        c.drawString(50, height - 50, "Reinsurance Quotation")
         c.setFont("Helvetica", 12)
-        c.drawString(100, 720, f"Client: {quotation_data['client_name']}")
-        c.drawString(100, 700, f"Sum Insured: ${quotation_data['sum_insured']:,.2f}")
-        c.drawString(100, 680, f"Risk Type: {quotation_data['risk_type']}")
-        c.drawString(100, 660, f"Industry: {quotation_data['industry']}")
-        c.drawString(100, 640, f"Years in Business: {quotation_data['years_in_business']}")
-        c.drawString(100, 620, f"Claims History: {quotation_data['claims_history']}")
-        c.drawString(100, 600, f"Risk Rating: {quotation_data['risk_rating']}")
-        c.drawString(100, 580, f"Premium: ${quotation_data['premium']:,.2f}")
+        c.drawString(50, height - 70, f"Date: {pd.Timestamp.now().strftime('%Y-%m-%d')}")
+
+        # Client Information
+        client_info = [
+            ["Client", quotation_data['client_name']],
+            ["Industry", quotation_data['industry']],
+            ["Years in Business", str(quotation_data['years_in_business'])],
+            ["Claims History", quotation_data['claims_history']]
+        ]
+        self.create_table(c, client_info, 50, height - 150, 250)
+
+        # Policy Details
+        policy_details = [
+            ["Sum Insured", f"${quotation_data['sum_insured']:,.2f}"],
+            ["Risk Type", quotation_data['risk_type']],
+            ["Risk Rating", quotation_data['risk_rating']],
+            ["Premium", f"${quotation_data['premium']:,.2f}"]
+        ]
+        self.create_table(c, policy_details, 300, height - 150, 250)
+
+        # Terms and Conditions
+        terms = """
+        Terms and Conditions:
+        1. This quotation is valid for 30 days from the date of issue.
+        2. The premium is subject to change based on any additional information provided.
+        3. Coverage is subject to the full terms, conditions, and exclusions of the policy.
+        4. This quotation is based on the information provided and may be adjusted if any details change.
+        """
+        p = Paragraph(terms, styles["BodyText"])
+        p.wrapOn(c, width - 100, height)
+        p.drawOn(c, 50, height - 350)
+
         c.save()
+
+    def create_table(self, canvas, data, x, y, width):
+        style = TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 14),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 12),
+            ('TOPPADDING', (0, 1), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ])
+        table = Table(data, colWidths=[width * 0.4, width * 0.6])
+        table.setStyle(style)
+        table.wrapOn(canvas, width, 400)
+        table.drawOn(canvas, x, y)
 
 class AdvancedUnderwritingSystem:
     def __init__(self):
@@ -152,7 +207,7 @@ class AdvancedUnderwritingSystem:
         self.doc_processor = AdvancedDocumentProcessor()
         self.data_extractor = AdvancedDataExtractor(self.nlp)
         self.rating_engine = AdvancedRatingEngine()
-        self.quotation_generator = AdvancedQuotationGenerator()
+        self.quotation_generator = EnhancedQuotationGenerator()
 
     def process_application(self, file_path: str):
         # Process document
