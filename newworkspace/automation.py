@@ -334,12 +334,12 @@ system = AdvancedUnderwritingSystem(pi_rating_guide_path)
 # Generate and train on dummy data
 x, y = generate_dummy_data(1000)
 system.rating_engine.train(x, y)
-system.rating_engine.save_model("dummy_rating_model.joblib")
+system.rating_engine.save_model(os.path.join(BASE_DIR / "models/dummy_rating_model.joblib"))
 
 print("Trained and saved dummy model.")
 
 # Check if a trained model exists and load it
-model_path = "dummy_rating_model.joblib"
+model_path = os.path.join(BASE_DIR / "models/dummy_rating_model.joblib")
 if os.path.exists(model_path):
     system.rating_engine.load_model(model_path)
     print("Loaded pre-trained model.")
