@@ -99,7 +99,7 @@ class AdvancedDataExtractor:
         return info
 
 class AdvancedRatingEngine:
-    def __init__(self):
+    def __init__(self, pi_rating_guide_path: str):
         self.model = RandomForestClassifier(n_estimators=100, random_state=42)
         self.scaler = StandardScaler()
         self.is_fitted = False
