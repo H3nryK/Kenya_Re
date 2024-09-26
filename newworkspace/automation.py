@@ -20,6 +20,10 @@ from reportlab.platypus import Paragraph, Spacer
 from reportlab.lib.units import inch
 from typing import Dict, Any, Tuple, List
 from PIL import Image
+from pathlib import Path
+
+# Building paths inside the project directory
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 class AdvancedDocumentProcessor:
     def __init__(self):
@@ -324,7 +328,7 @@ def generate_dummy_data(num_samples: int = 1000) -> Tuple[np.ndarray, np.ndarray
     return X, y
 
 # Usage
-pi_rating_guide_path = 'rating_guide.pdf'
+pi_rating_guide_path = os.path.join(BASE_DIR / 'documents/rating_guide.pdf')
 system = AdvancedUnderwritingSystem(pi_rating_guide_path)
 
 # Generate and train on dummy data
@@ -344,9 +348,9 @@ else:
 
 # processing teh application
 system.process_application(
-    'proposal.pdf',
-    'audit.pdf',
-    'image.jpg'
+    os.path.join(BASE_DIR / 'documents/proposal.pdf'),
+    os.path.join(BASE_DIR / 'documents/audit.pdf'),
+    os.path.join(BASE_DIR / 'image.jpg')
 )
 
 print("Advanced quotation generated successfully.")
