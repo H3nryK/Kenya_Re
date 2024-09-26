@@ -1,6 +1,13 @@
 import PyPDF2
 import pandas as pd
 import numpy as np
+import re
+import spacy
+import joblib
+import cv2
+import os
+import pytesseract
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -11,11 +18,8 @@ from reportlab.platypus import Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph, Spacer
 from reportlab.lib.units import inch
-import re
-import spacy
-import joblib
-from typing import Dict, Any, Tuple
-import os
+from typing import Dict, Any, Tuple, List
+from PIL import Image
 
 class AdvancedDocumentProcessor:
     def __init__(self):
@@ -27,6 +31,12 @@ class AdvancedDocumentProcessor:
             pdf_reader = PyPDF2.PdfReader(file)
             for page in pdf_reader.pages:
                 text += page.extract_text()
+        return text
+    
+    def process_image(self, file_path: str) -> str:
+        image = cv2.imread(file_path)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        text = pytesseract.image_to_string(gray)
         return text
 
     def process_excel(self, file_path: str) -> pd.DataFrame:
@@ -44,7 +54,9 @@ class AdvancedDataExtractor:
             'risk_type': None,
             'industry': None,
             'years_in_business': None,
-            'claims_history': None
+            'claims_history': None,
+            'revenue': None,
+            'license_number': None
         }
 
         for ent in doc.ents:
@@ -67,6 +79,12 @@ class AdvancedDataExtractor:
         info['years_in_business'] = re.search(r'Years in Business:\s*(\d+)', text)
         info['claims_history'] = re.search(r'Claims History:\s*(.+)', text)
 
+        revenue_match = re.search(r'Annual Revenue:\s*\ksh?(\d+(?:,\d+)*(?:\.\d+)?)', text)
+        info['lrevenue'] = float(revenue_match.group(1).replace(',', '')) if revenue_match else 0
+
+        licence_match = re.search(r'License Number:\s*(\W+)', text)
+        info['license_number'] = licence_match.group(1) if licence_match else "Unknown"
+
         # Convert matches to strings or None
         for key, value in info.items():
             if isinstance(value, re.Match):
@@ -85,6 +103,11 @@ class AdvancedRatingEngine:
         self.model = RandomForestClassifier(n_estimators=100, random_state=42)
         self.scaler = StandardScaler()
         self.is_fitted = False
+        self.pi_rating_guide = self.load_pi_rating_guide(pi_rating_guide_path)
+    
+    def load_pi_rating_guide(self, file_path: str) -> Dict[str, Any]:
+        # Placeholder
+        return {"base_rate": 0.01, "risk_multipliers": {"Low": 1.0, "Medium": 1.5, "High":2.0}}
 
     def preprocess_features(self, features: Dict[str, Any]) -> np.ndarray:
         risk_type_map = {'Low': 0, 'Medium': 1, 'High': 2}
@@ -95,6 +118,7 @@ class AdvancedRatingEngine:
             risk_type_map.get(features['risk_type'], 1),
             industry_map.get(features['industry'], 4),
             features['years_in_business'],
+            features['revenue'],
             len(features['claims_history'].split(',')) if features['claims_history'] != "None" else 0
         ]).reshape(1, -1)
         
@@ -158,20 +182,22 @@ class EnhancedQuotationGenerator:
 
         # Policy Details
         policy_details = [
-            ["Sum Insured", f"${quotation_data['sum_insured']:,.2f}"],
+            ["Sum Insured", f"Ksh. {quotation_data['sum_insured']:,.2f}"],
             ["Risk Type", quotation_data['risk_type']],
             ["Risk Rating", quotation_data['risk_rating']],
-            ["Premium", f"${quotation_data['premium']:,.2f}"]
+            ["Premium", f"Ksh. {quotation_data['premium']:,.2f}"],
+            ["Revenue", f"Ksh. {quotation_data['revenue']:,.2f}"],
+            ["License Number", quotation_data['license_number']]
         ]
         self.create_table(c, policy_details, 300, height - 150, 250)
 
         # Terms and Conditions
-        terms = """
+        terms = f"""
         Terms and Conditions:
-        1. This quotation is valid for 30 days from the date of issue.
-        2. The premium is subject to change based on any additional information provided.
-        3. Coverage is subject to the full terms, conditions, and exclusions of the policy.
-        4. This quotation is based on the information provided and may be adjusted if any details change.
+        1. This quotation is valid for 30 days from the date of issue.\n
+        2. The premium is subject to change based on any additional information provided.\n
+        3. Coverage is subject to the full terms, conditions, and exclusions of the policy.\n
+        4. This quotation is based on the information provided and may be adjusted if any details change.\n
         """
         p = Paragraph(terms, styles["BodyText"])
         p.wrapOn(c, width - 100, height)
@@ -202,25 +228,45 @@ class EnhancedQuotationGenerator:
         table.drawOn(canvas, x, y)
 
 class AdvancedUnderwritingSystem:
-    def __init__(self):
+    def __init__(self, pi_rating_guide_path: str):
         self.nlp = spacy.load("en_core_web_sm")
         self.doc_processor = AdvancedDocumentProcessor()
         self.data_extractor = AdvancedDataExtractor(self.nlp)
-        self.rating_engine = AdvancedRatingEngine()
+        self.rating_engine = AdvancedRatingEngine(pi_rating_guide_path)
         self.quotation_generator = EnhancedQuotationGenerator()
 
-    def process_application(self, file_path: str):
-        # Process document
-        if file_path.endswith('.pdf'):
-            text = self.doc_processor.process_pdf(file_path)
-        elif file_path.endswith('.xlsx'):
-            df = self.doc_processor.process_excel(file_path)
-            text = df.to_string()
+    def process_application(self, proposal_path: str, audit_path: str, license_path: str):
+        # Load the proposal document
+        if proposal_path.lower().endswith(('.pdf', '.jpg', '.png')):
+            if proposal_path.lower().endswith('.pdf'):
+                proposal_text = self.doc_processor.process_pdf(proposal_path)
+            else:
+                proposal_text = self.doc_processor.process_image(proposal_path)
         else:
-            raise ValueError("Unsupported file format")
+            raise ValueError("Unsupported proposal Format")
+        
+
+        if audit_path.endswith('.pdf'):
+            audit_text = self.doc_processor.process_pdf(audit_path)
+        elif audit_path.endswith('.xlsx'):
+            audit_df = self.doc_processor.process_excel(audit_path)
+            audit_text = audit_df.to_string()
+        else:
+            raise ValueError("Unsupported Audit format.")
+        
+        if license_path.lower().endswith(('.pdf', '.jpg', '.png')):
+            if license_path.lower().endswith('.pdf'):
+                license_text = self.doc_processor.process_pdf(license_path)
+            else:
+                license_text = self.doc_processor.process_image(license_path)
+        else:
+            raise ValueError("Unsupported License Format")
+        
+        # Combined all texts
+        combined_text = f"{proposal_text}\n{audit_text}\n{license_text}"
 
         # Extract key information
-        key_info = self.data_extractor.extract_key_info(text)
+        key_info = self.data_extractor.extract_key_info(combined_text)
 
         # Predict rating
         rating = self.rating_engine.predict_rating(key_info)
@@ -230,8 +276,8 @@ class AdvancedUnderwritingSystem:
         self.quotation_generator.generate_pdf(quotation_data, "advanced_quotation.pdf")
 
     def prepare_quotation(self, key_info: Dict[str, Any], rating: str) -> Dict[str, Any]:
-        base_rate = 0.01  # 1% base rate
-        risk_multiplier = {'Low': 1.0, 'Medium': 1.5, 'High': 2.0}
+        base_rate = self.rating_engine.pi_rating_guide['base_rate']
+        risk_multiplier = self.rating_engine.pi_rating_guide['risk_multipliers'][rating]
         industry_factor = {
             'Technology': 1.2,
             'Manufacturing': 1.3,
@@ -243,9 +289,10 @@ class AdvancedUnderwritingSystem:
         premium = (
             key_info['sum_insured'] *
             base_rate *
-            risk_multiplier[rating] *
+            risk_multiplier *
             industry_factor.get(key_info['industry'], 1.1) *
-            (1 + 0.01 * int(key_info['years_in_business']))  # 1% discount per year in business
+            (1 + 0.01 * int(key_info['years_in_business'])) *  # 1% discount per year in business
+            (1 + 0.001 * (key_info['revenue'] / 1000000))
         )
 
         return {
@@ -277,7 +324,8 @@ def generate_dummy_data(num_samples: int = 1000) -> Tuple[np.ndarray, np.ndarray
     return X, y
 
 # Usage
-system = AdvancedUnderwritingSystem()
+pi_rating_guide_path = 'rating_guide.pdf'
+system = AdvancedUnderwritingSystem(pi_rating_guide_path)
 
 # Generate and train on dummy data
 x, y = generate_dummy_data(1000)
@@ -294,6 +342,11 @@ if os.path.exists(model_path):
 else:
     print("No pre-trained model found. Using fallback rating method.")
 
-# Process the application
-system.process_application("Fekan Howell - Proposal Form signed and dated 11072024.pdf")
+# processing teh application
+system.process_application(
+    'proposal.pdf',
+    'audit.pdf',
+    'image.jpg'
+)
+
 print("Advanced quotation generated successfully.")
