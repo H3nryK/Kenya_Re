@@ -1,146 +1,36 @@
-import fitz  # PyMuPDF
-import pytesseract
-from pdf2image import convert_from_path
-from PIL import Image, ImageEnhance, ImageFilter
-from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+from keras import layers
+from keras.src.models import Model
 
-# Path to the Tesseract executable
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+from mltu.tensorflow.model_utils import residual_block
 
-# Load pre-trained TROCR model and processor for handwritten text
-processor = TrOCRProcessor.from_pretrained('microsoft/trocr-base-handwritten')
-model = VisionEncoderDecoderModel.from_pretrained('microsoft/trocr-base-handwritten')
 
-# ===========================
-# Step 1: Preprocess PDF Pages and Extract Printed Text
-# ===========================
-
-def preprocess_image(image):
-    """Preprocess the image for better OCR results."""
-    image = image.convert("L")
-    image = ImageEnhance.Contrast(image).enhance(2)
-    image = ImageEnhance.Sharpness(image).enhance(2)
-    image = image.filter(ImageFilter.MedianFilter())
-    return image
-
-def extract_text_from_image(image):
-    """Extract printed text from an image using Tesseract OCR."""
-    preprocessed_image = preprocess_image(image)
-    custom_config = r'--oem 1 --psm 6'
-    extracted_text = pytesseract.image_to_string(preprocessed_image, config=custom_config)
-    return extracted_text
-
-def extract_text_from_pdf(pdf_path):
-    """Extract printed text from a PDF file using Tesseract OCR."""
-    pages = convert_from_path(pdf_path, dpi=300)
-    combined_text = ""
-    for i, page in enumerate(pages):
-        print(f"Processing printed text from page {i + 1}...")
-        page_text = extract_text_from_image(page)
-        combined_text += page_text + "\n\n"
-    return combined_text
-
-# ===========================
-# Step 2: Use PyMuPDF to Get Coordinates of Marked Handwritten Fields
-# ===========================
-
-def get_handwritten_field_boxes(pdf_path):
-    """Use PyMuPDF to extract manually marked regions and their coordinates."""
-    doc = fitz.open(pdf_path)
-    field_boxes = []
+def train_model(input_dim, output_dim, activation="leaky_relu", dropout=0.2):
     
-    for page_num in range(len(doc)):
-        page = doc.load_page(page_num)
-        annot_list = page.annots()  # Get annotations (including marked regions)
-        page_fields = {}
+    inputs = layers.Input(shape=input_dim, name="input")
 
-        if annot_list:
-            for annot in annot_list:
-                rect = annot.rect  # Bounding box coordinates
-                content = annot.info.get("content", f"Field_{len(page_fields)+1}")  # Optional: Use content or default naming
-                print(f"Page {page_num+1}, Field: {content}, Coordinates: {rect}")  # Print the coordinates
-                page_fields[content] = rect
-            field_boxes.append(page_fields)
+    # normalize images here instead in preprocessing step
+    input = layers.Lambda(lambda x: x / 255)(inputs)
 
-    return field_boxes
+    x1 = residual_block(input, 16, activation=activation, skip_conv=True, strides=1, dropout=dropout)
 
-# ===========================
-# Step 3: Crop and Extract Handwritten Text from Specified Fields
-# ===========================
+    x2 = residual_block(x1, 16, activation=activation, skip_conv=True, strides=2, dropout=dropout)
+    x3 = residual_block(x2, 16, activation=activation, skip_conv=False, strides=1, dropout=dropout)
 
-def crop_handwritten_section(image, crop_box):
-    """Crop the handwritten section of the image using a bounding box."""
-    return image.crop(crop_box)
+    x4 = residual_block(x3, 32, activation=activation, skip_conv=True, strides=2, dropout=dropout)
+    x5 = residual_block(x4, 32, activation=activation, skip_conv=False, strides=1, dropout=dropout)
 
-def extract_handwritten_text_from_image(image):
-    """Extract handwritten text from a cropped image using TROCR."""
-    pixel_values = processor(images=image, return_tensors="pt").pixel_values
-    generated_ids = model.generate(pixel_values, max_new_tokens=100)  # Increase max_new_tokens
-    generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-    return generated_text
+    x6 = residual_block(x5, 64, activation=activation, skip_conv=True, strides=2, dropout=dropout)
+    x7 = residual_block(x6, 64, activation=activation, skip_conv=True, strides=1, dropout=dropout)
 
-def extract_handwritten_text_from_pdf(pdf_path, handwritten_field_boxes):
-    """Extract handwritten text from specified sections of a PDF form."""
-    pages = convert_from_path(pdf_path, dpi=300)
-    handwritten_text_data = {}
-    
-    for i, page in enumerate(pages):
-        print(f"Processing handwritten text from page {i + 1}...")
-        
-        if i < len(handwritten_field_boxes):
-            page_fields = handwritten_field_boxes[i]  # Get the crop boxes for this page
-            
-            # Crop each section and extract handwritten text
-            for field_name, crop_box in page_fields.items():
-                cropped_image = crop_handwritten_section(page, (crop_box[0], crop_box[1], crop_box[2], crop_box[3]))
-                handwritten_text = extract_handwritten_text_from_image(cropped_image)
-                handwritten_text_data[field_name] = handwritten_text
+    x8 = residual_block(x7, 64, activation=activation, skip_conv=False, strides=1, dropout=dropout)
+    x9 = residual_block(x8, 64, activation=activation, skip_conv=False, strides=1, dropout=dropout)
 
-    return handwritten_text_data
+    squeezed = layers.Reshape((x9.shape[-3] * x9.shape[-2], x9.shape[-1]))(x9)
 
-# ===========================
-# Step 4: Hybrid Workflow for Forms with Handwritten Fields
-# ===========================
+    blstm = layers.Bidirectional(layers.LSTM(128, return_sequences=True))(squeezed)
+    blstm = layers.Dropout(dropout)(blstm)
 
-def process_form_pdf(pdf_path):
-    """
-    Process a form PDF to extract both printed and handwritten text.
-    
-    Args:
-    - pdf_path (str): Path to the PDF file containing the form.
-    
-    Returns:
-    - dict: Combined results of printed and handwritten text.
-    """
-    # Step 1: Extract printed text from the PDF using Tesseract OCR
-    printed_text_data = extract_text_from_pdf(pdf_path)
-    
-    # Step 2: Extract bounding boxes of handwritten fields using PyMuPDF
-    handwritten_field_boxes = get_handwritten_field_boxes(pdf_path)
-    
-    # Step 3: Extract handwritten text from the specified fields
-    handwritten_text_data = extract_handwritten_text_from_pdf(pdf_path, handwritten_field_boxes)
-    
-    # Combine the results
-    combined_data = {
-        "printed_text": printed_text_data,
-        "handwritten_text": handwritten_text_data
-    }
+    output = layers.Dense(output_dim + 1, activation="softmax", name="output")(blstm)
 
-    return combined_data
-
-# ===========================
-# Step 5: Testing the Full Pipeline
-# ===========================
-pdf_path = 'proposal.pdf'
-
-# Process the document
-combined_data = process_form_pdf(pdf_path)
-
-# Output the extracted data
-print("Printed Text Data:")
-print(combined_data['printed_text'])
-
-print("\nHandwritten Text Data:")
-for field, content in combined_data['handwritten_text'].items():
-    print(f"{field}: {content}")
+    model = Model(inputs=inputs, outputs=output)
+    return model
