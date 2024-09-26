@@ -14,7 +14,7 @@ from reportlab.lib.units import inch
 import re
 import spacy
 import joblib
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 import os
 
 class AdvancedDocumentProcessor:
@@ -254,11 +254,40 @@ class AdvancedUnderwritingSystem:
             'premium': premium
         }
 
+
+def generate_dummy_data(num_samples: int = 1000) -> Tuple[np.ndarray, np.ndarray]:
+    np.random.seed(42)
+    sum_insured = np.random.uniform(100000, 2000000, num_samples)
+    risk_type = np.random.choice(['Low', 'Medium', 'High'], num_samples)
+    industry = np.random.choice(['Technology', 'Manufacturing', 'Healthcare', 'Finance', 'Other'], num_samples)
+    years_in_business = np.random.randint(1, 50, num_samples)
+    claims_history = np.random.choice(['None', 'Minor', 'Major'], num_samples)
+
+    X = np.column_stack((sum_insured, 
+                         np.where(risk_type == 'Low', 0, np.where(risk_type == 'Medium', 1, 2)),
+                         np.where(industry == 'Technology', 0, np.where(industry == 'Manufacturing', 1, np.where(industry == 'Healthcare', 2, np.where(industry == 'Finance', 3, 4)))),
+                         years_in_business,
+                         np.where(claims_history == 'None', 0, np.where(claims_history == 'Minor', 1, 2))))
+
+    # Generate target variable (you might want to adjust this logic based on your domain knowledge)
+    y = np.where((sum_insured > 1000000) | (claims_history == 'Major'), 2,  # High risk
+                 np.where((sum_insured > 500000) | (years_in_business < 5), 1,  # Medium risk
+                          0))  # Low risk
+
+    return X, y
+
 # Usage
 system = AdvancedUnderwritingSystem()
 
+# Generate and train on dummy data
+x, y = generate_dummy_data(1000)
+system.rating_engine.train(x, y)
+system.rating_engine.save_model("dummy_rating_model.joblib")
+
+print("Trained and saved dummy model.")
+
 # Check if a trained model exists and load it
-model_path = "rating_model.joblib"
+model_path = "dummy_rating_model.joblib"
 if os.path.exists(model_path):
     system.rating_engine.load_model(model_path)
     print("Loaded pre-trained model.")
