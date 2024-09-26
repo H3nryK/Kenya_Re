@@ -18,7 +18,7 @@ from reportlab.platypus import Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph, Spacer
 from reportlab.lib.units import inch
-from typing import Dict, Any, Tuple, List
+from typing import Dict, Any, Tuple, List, Optional
 from PIL import Image
 from pathlib import Path
 
@@ -59,8 +59,7 @@ class AdvancedDataExtractor:
             'industry': None,
             'years_in_business': None,
             'claims_history': None,
-            'revenue': None,
-            'license_number': None
+            'revenue': None
         }
 
         for ent in doc.ents:
@@ -83,11 +82,8 @@ class AdvancedDataExtractor:
         info['years_in_business'] = re.search(r'Years in Business:\s*(\d+)', text)
         info['claims_history'] = re.search(r'Claims History:\s*(.+)', text)
 
-        revenue_match = re.search(r'Annual Revenue:\s*\ksh?(\d+(?:,\d+)*(?:\.\d+)?)', text)
-        info['lrevenue'] = float(revenue_match.group(1).replace(',', '')) if revenue_match else 0
-
-        licence_match = re.search(r'License Number:\s*(\W+)', text)
-        info['license_number'] = licence_match.group(1) if licence_match else "Unknown"
+        revenue_match = re.search(r'Annual Revenue:\s*([^\n]+)', text)
+        info['lrevenue'] = float(revenue_match.group(1)) if revenue_match else 0
 
         # Convert matches to strings or None
         for key, value in info.items():
@@ -101,6 +97,15 @@ class AdvancedDataExtractor:
         info['claims_history'] = info['claims_history'] or "None"
 
         return info
+    def extract_field(self, text: str, pattern: str) -> Optional[str]:
+        match = re.search(pattern, text)
+        return match.group(1).strip() if match else None
+    
+    def parse_money(self, money_str: str) -> float:
+        try:
+            return float(re.sub(r'[^\d]', '', money_str))
+        except ValueError:
+            return 0.0
 
 class AdvancedRatingEngine:
     def __init__(self, pi_rating_guide_path: str):
@@ -122,8 +127,7 @@ class AdvancedRatingEngine:
             risk_type_map.get(features['risk_type'], 1),
             industry_map.get(features['industry'], 4),
             features['years_in_business'],
-            features['revenue'],
-            len(features['claims_history'].split(',')) if features['claims_history'] != "None" else 0
+            features['revenue']
         ]).reshape(1, -1)
         
         return feature_array if not self.is_fitted else self.scaler.transform(feature_array)
@@ -190,8 +194,7 @@ class EnhancedQuotationGenerator:
             ["Risk Type", quotation_data['risk_type']],
             ["Risk Rating", quotation_data['risk_rating']],
             ["Premium", f"Ksh. {quotation_data['premium']:,.2f}"],
-            ["Revenue", f"Ksh. {quotation_data['revenue']:,.2f}"],
-            ["License Number", quotation_data['license_number']]
+            ["Revenue", f"Ksh. {quotation_data['revenue']:,.2f}"]
         ]
         self.create_table(c, policy_details, 300, height - 150, 250)
 
@@ -239,7 +242,17 @@ class AdvancedUnderwritingSystem:
         self.rating_engine = AdvancedRatingEngine(pi_rating_guide_path)
         self.quotation_generator = EnhancedQuotationGenerator()
 
-    def process_application(self, proposal_path: str, audit_path: str, license_path: str):
+    def process_application(self, proposal_path: str, audit_path: str):
+        # Convert to absolute paths
+        proposal_path = os.path.abspath(proposal_path)
+        audit_path = os.path.abspath(audit_path)
+
+        # Check if Files exists
+        if not os.path.exists(proposal_path):
+            raise FileNotFoundError(f"Proposal file not found: {proposal_path}")
+        if not os.path.exists(audit_path):
+            raise FileNotFoundError(f"Audit file not found: {audit_path}")
+
         # Load the proposal document
         if proposal_path.lower().endswith(('.pdf', '.jpg', '.png')):
             if proposal_path.lower().endswith('.pdf'):
@@ -249,7 +262,6 @@ class AdvancedUnderwritingSystem:
         else:
             raise ValueError("Unsupported proposal Format")
         
-
         if audit_path.endswith('.pdf'):
             audit_text = self.doc_processor.process_pdf(audit_path)
         elif audit_path.endswith('.xlsx'):
@@ -258,16 +270,8 @@ class AdvancedUnderwritingSystem:
         else:
             raise ValueError("Unsupported Audit format.")
         
-        if license_path.lower().endswith(('.pdf', '.jpg', '.png')):
-            if license_path.lower().endswith('.pdf'):
-                license_text = self.doc_processor.process_pdf(license_path)
-            else:
-                license_text = self.doc_processor.process_image(license_path)
-        else:
-            raise ValueError("Unsupported License Format")
-        
         # Combined all texts
-        combined_text = f"{proposal_text}\n{audit_text}\n{license_text}"
+        combined_text = f"{proposal_text}\n{audit_text}"
 
         # Extract key information
         key_info = self.data_extractor.extract_key_info(combined_text)
@@ -312,16 +316,16 @@ def generate_dummy_data(num_samples: int = 1000) -> Tuple[np.ndarray, np.ndarray
     risk_type = np.random.choice(['Low', 'Medium', 'High'], num_samples)
     industry = np.random.choice(['Technology', 'Manufacturing', 'Healthcare', 'Finance', 'Other'], num_samples)
     years_in_business = np.random.randint(1, 50, num_samples)
-    claims_history = np.random.choice(['None', 'Minor', 'Major'], num_samples)
+    revenue = np.random.uniform(1000000, 100000000, num_samples)
 
     X = np.column_stack((sum_insured, 
                          np.where(risk_type == 'Low', 0, np.where(risk_type == 'Medium', 1, 2)),
                          np.where(industry == 'Technology', 0, np.where(industry == 'Manufacturing', 1, np.where(industry == 'Healthcare', 2, np.where(industry == 'Finance', 3, 4)))),
                          years_in_business,
-                         np.where(claims_history == 'None', 0, np.where(claims_history == 'Minor', 1, 2))))
+                         revenue))
 
     # Generate target variable (you might want to adjust this logic based on your domain knowledge)
-    y = np.where((sum_insured > 1000000) | (claims_history == 'Major'), 2,  # High risk
+    y = np.where((sum_insured > 1000000) | (revenue > 5000000), 2,  # High risk
                  np.where((sum_insured > 500000) | (years_in_business < 5), 1,  # Medium risk
                           0))  # Low risk
 
@@ -334,12 +338,12 @@ system = AdvancedUnderwritingSystem(pi_rating_guide_path)
 # Generate and train on dummy data
 x, y = generate_dummy_data(1000)
 system.rating_engine.train(x, y)
-system.rating_engine.save_model(os.path.join(BASE_DIR / "models/dummy_rating_model.joblib"))
+system.rating_engine.save_model("dummy_rating_model.joblib")
 
 print("Trained and saved dummy model.")
 
 # Check if a trained model exists and load it
-model_path = os.path.join(BASE_DIR / "models/dummy_rating_model.joblib")
+model_path = "dummy_rating_model.joblib"
 if os.path.exists(model_path):
     system.rating_engine.load_model(model_path)
     print("Loaded pre-trained model.")
@@ -348,9 +352,8 @@ else:
 
 # processing teh application
 system.process_application(
-    os.path.join(BASE_DIR / 'documents/proposal.pdf'),
-    os.path.join(BASE_DIR / 'documents/audit.pdf'),
-    os.path.join(BASE_DIR / 'image.jpg')
+    os.path.join(BASE_DIR / 'newworkspace/documents/proposal.pdf'),
+    os.path.join(BASE_DIR / 'newworkspace/documents/audit.pdf')
 )
 
 print("Advanced quotation generated successfully.")
